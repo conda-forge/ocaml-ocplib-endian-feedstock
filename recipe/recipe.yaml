@@ -3,10 +3,14 @@ schema_version: 1
 context:
   name: ocplib-endian
   version: "1.2"
+  build_number: 1
 
+  # ocaml_win-64 ships gcc_* and vs2022_* at the same version/build; name the track.
+  c_toolchain: ${{ "" if unix else c_compiler ~ "_*" }}
   library: ${{ "Library/" if not unix else "" }}
   m2: ${{ "m2-" if not unix else "" }}
-  c_toolchain: ${{ "" if unix else "gcc_*" }}
+  # static archive paired with the .cmxa: msvc ships .lib, gcc and unix ship .a
+  native_lib_ext: ${{ ".lib" if c_compiler == "vs2022" else ".a" }}
 
 package:
   name: ocaml-${{ name }}
@@ -19,21 +23,37 @@ source:
     - patches/0001-drop-bytes-compat-library.patch
 
 build:
-  number: 0
+  number: ${{ build_number }}
+  string: ${{ c_compiler ~ "_" if not unix }}h${{ hash }}_${{ build_number }}
   script: bash ${{ RECIPE_DIR }}/build.sh ocplib-endian
 
 requirements:
   build:
-    - if: unix
+    - ${{ compiler("ocaml") }}
+    - if: not unix and c_compiler == "gcc"
+      then:
+        - ${{ stdlib("m2w64_c") }}
+      else:
+        - ${{ stdlib("c") }}
+    # ocaml_win-64 >=14 only run-constrains the C compiler; activate it here, once (vs2022, zig)
+    - if: not unix and c_compiler != "gcc"
       then:
         - ${{ compiler("c") }}
-        - ${{ stdlib("c") }}
-      else:
-        - ${{ compiler("m2w64_c") }}
-        - ${{ stdlib("m2w64_c") }}
-    # non-unix: conda-forge ocaml has gcc_ and vs2022_ tracks; these recipes use the gcc (MinGW) track only.
-    - ocaml ${{ ocaml_compiler_version }}.* ${{ c_toolchain }}
-    - ocaml-dune 3.24.*
+    # compiler("ocaml") renders no toolchain track; name it on windows
+    - if: not unix
+      then:
+        - ocaml_${{ target_platform }} ${{ ocaml_compiler_version }}.* ${{ c_toolchain }}
+    # the cross compiler does not pull the native one; the build runs OCaml on the build machine
+    - if: build_platform != target_platform and unix
+      then:
+        - ocaml_${{ build_platform }} ${{ ocaml_compiler_version }}.*
+        # the cross compiler activates itself (shims, OCAMLLIB, host OCAMLPATH)
+        - ocaml_${{ target_platform }} ${{ ocaml_compiler_version }}.*
+    # windows cross: the self-contained gcc track needs no vcvars
+    - if: build_platform != target_platform and not unix
+      then:
+        - ocaml_${{ build_platform }} ${{ ocaml_compiler_version }}.* gcc_*
+    - ocaml-dune >=3.4
     - ocaml-cppo >=1.1
     - ${{ m2 }}make
     - if: not unix
@@ -41,26 +61,48 @@ requirements:
         - m2-bash
         - m2-coreutils
   host:
-    - ocaml ${{ ocaml_compiler_version }}.* ${{ c_toolchain }}
-  run:
-    - ocaml ${{ ocaml_compiler_version }}.* ${{ c_toolchain }}
+    # library: ocaml's run_export pins the compiler patch version
+    - ocaml ${{ ocaml_compiler_version }}.*
+    # the noarch ocaml metapackage does not pin the windows toolchain track
+    - if: not unix
+      then:
+        - ocaml_${{ target_platform }} ${{ ocaml_compiler_version }}.* ${{ c_toolchain }}
+  # the ocaml run_export does not encode the windows toolchain track
+  run_constraints:
+    - if: not unix
+      then:
+        - ocaml_${{ target_platform }} ${{ ocaml_compiler_version }}.* ${{ c_toolchain }}
 
 tests:
   - package_contents:
       files:
         - ${{ library }}lib/ocaml/${{ name }}/META
-        - ${{ library }}lib/ocaml/${{ name }}/bigstring/ocplib_endian_bigstring.cmxa
-  - script: bash testing/test_ocaml_lib.sh
-    files:
-      recipe:
-        - testing/test_ocaml_lib.sh
-    requirements:
-      run:
-        - ocaml ${{ ocaml_compiler_version }}.* ${{ c_toolchain }}
-        - if: not unix
+        # win-arm64 is bytecode-only upstream: OCaml 5.4 has no arm64 Windows backend
+        - if: target_platform != "win-arm64"
           then:
-            - m2-bash
-            - m2-coreutils
+            - ${{ library }}lib/ocaml/${{ name }}/ocplib_endian.cmxa
+            - ${{ library }}lib/ocaml/${{ name }}/ocplib_endian${{ native_lib_ext }}
+            - ${{ library }}lib/ocaml/${{ name }}/bigstring/ocplib_endian_bigstring.cmxa
+  # the script links native executables, so it cannot run on the bytecode-only lane
+  - if: target_platform != "win-arm64"
+    then:
+      script: bash testing/test_ocaml_lib.sh
+      files:
+        recipe:
+          - testing/test_ocaml_lib.sh
+      requirements:
+        run:
+          - ocaml ${{ ocaml_compiler_version }}.*
+          - if: not unix
+            then:
+              - ocaml_${{ target_platform }} ${{ ocaml_compiler_version }}.* ${{ c_toolchain }}
+          - if: not unix and c_compiler != "gcc"
+            then:
+              - ${{ compiler("c") }}
+          - if: not unix
+            then:
+              - m2-bash
+              - m2-coreutils
 
 about:
   homepage: https://github.com/OCamlPro/ocplib-endian
