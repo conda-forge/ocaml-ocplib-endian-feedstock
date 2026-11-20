@@ -1,5 +1,7 @@
 c_compiler:
 - zig
+c_compiler_version:
+- '2022'
 c_stdlib:
 - vs
 channel_sources:
@@ -12,7 +14,3 @@ ocaml_compiler_version:
 - 5.5.1
 target_platform:
 - win-arm64
-zig_compiler:
-- zig
-zig_compiler_version:
-- 0.17.0
