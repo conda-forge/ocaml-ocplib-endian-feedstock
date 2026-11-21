@@ -3,7 +3,7 @@ schema_version: 1
 context:
   name: ocplib-endian
   version: "1.2"
-  build_number: 1
+  build_number: 2
 
   # ocaml_win-64 ships gcc_* and vs2022_* at the same version/build; name the track.
   c_toolchain: ${{ "" if unix else c_compiler ~ "_*" }}
@@ -77,6 +77,7 @@ tests:
   - package_contents:
       files:
         - ${{ library }}lib/ocaml/${{ name }}/META
+        - ${{ library }}share/doc/ocplib-endian/COPYING.txt
         # win-arm64 is bytecode-only upstream: OCaml 5.4 has no arm64 Windows backend
         - if: target_platform != "win-arm64"
           then:

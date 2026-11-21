@@ -33,3 +33,8 @@ dune install -p "${pkgs}" --prefix="${prefix}" \
   --libdir="${prefix}/lib/ocaml" \
   --docdir="${prefix}/share/doc" \
   --mandir="${prefix}/share/man"
+
+if [ -f COPYING.txt ]; then
+  mkdir -p "${prefix}/share/doc/ocplib-endian"
+  install -m 644 COPYING.txt "${prefix}/share/doc/ocplib-endian/"
+fi
